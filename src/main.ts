@@ -1,5 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios'
-import sdk, { Device, ScryptedDeviceBase, OnOff, DeviceProvider, ScryptedDeviceType, ThermostatMode, Thermometer, HumiditySensor, TemperatureSetting, Settings, Setting, ScryptedInterface, Refresh, TemperatureUnit, HumidityCommand, HumidityMode, HumiditySetting, VOCSensor, AirQualitySensor, AirQuality } from '@scrypted/sdk';
+import sdk, { Device, ScryptedDeviceBase, OnOff, DeviceProvider, ScryptedDeviceType, ThermostatMode, Thermometer, HumiditySensor, TemperatureSetting, Settings, Setting, ScryptedInterface, Refresh, TemperatureUnit, HumidityCommand, HumidityMode, HumiditySetting, VOCSensor, AirQualitySensor, AirQuality, CO2Sensor } from '@scrypted/sdk';
 const { deviceManager, log } = sdk;
 
 const API_RETRY = 2;
@@ -224,7 +224,7 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     if (ScryptedInterface.VOCSensor in this.interfaces)
       this.vocDensity = data.runtime.actualVOC/10;
     if (true)
-      this.console.log(`co2: ${data.runtime.actualCO2/10}`)
+      this.co2ppm = data.runtime.actualCO2/10;
   }
 
   async setHumidity(humidity: HumidityCommand): Promise<void> {
@@ -637,9 +637,9 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
       if (apiDevice.runtime.actualAQScore >= 0)
         interfaces.push(ScryptedInterface.AirQualitySensor);
       if (apiDevice.runtime.actualVOC >= 0)
-        interfaces.push(ScryptedInterface.VOCSensor)
+        interfaces.push(ScryptedInterface.VOCSensor);
       if (apiDevice.runtime.actualCO2 >= 0)
-        this.console.log('CO2 sensor available');
+        interfaces.push(ScryptedInterface.CO2Sensor);
 
       const device: Device = {
         nativeId: apiDevice.identifier,

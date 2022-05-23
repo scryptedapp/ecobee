@@ -1,6 +1,6 @@
 {
     "name": "@scrypted/ecobee",
-    "version": "0.0.17",
+    "version": "0.0.18",
     "description": "Ecobee Plugin for Scrypted",
     "author": "Scrypted",
     "license": "Apache",
@@ -30,7 +30,7 @@
         ]
     },
     "devDependencies": {
-        "@scrypted/sdk": "^0.0.196",
+        "@scrypted/sdk": "^0.0.198",
         "@types/node": "^16.7.1"
     },
     "dependencies": {
