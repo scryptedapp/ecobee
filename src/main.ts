@@ -1,5 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios'
-import sdk, { Device, DeviceInformation, ScryptedDeviceBase, OnOff, DeviceProvider, ScryptedDeviceType, ThermostatMode, Thermometer, HumiditySensor, TemperatureSetting, Settings, Setting, ScryptedInterface, Refresh, TemperatureUnit, HumidityCommand, HumidityMode, HumiditySetting } from '@scrypted/sdk';
+import sdk, { Device, ScryptedDeviceBase, OnOff, DeviceProvider, ScryptedDeviceType, ThermostatMode, Thermometer, HumiditySensor, TemperatureSetting, Settings, Setting, ScryptedInterface, Refresh, TemperatureUnit, HumidityCommand, HumidityMode, HumiditySetting, VOCSensor, AirQualitySensor, AirQuality } from '@scrypted/sdk';
 const { deviceManager, log } = sdk;
 
 const API_RETRY = 2;
@@ -56,7 +56,7 @@ function humModeFromEcobee(mode: string): HumidityMode {
   return HumidityMode.Off
 }
 
-class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, Thermometer, TemperatureSetting, Refresh, OnOff, HumiditySetting, Settings {
+class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, Thermometer, TemperatureSetting, Refresh, OnOff, HumiditySetting, Settings, VOCSensor, AirQualitySensor {
   device: any;
   revisionList: string[];
   provider: EcobeeController;
@@ -82,14 +82,6 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
 
   async getSettings(): Promise<Setting[]> {
     return [
-      {
-        title: 'Additional Devices',
-        key: 'additional_devices',
-        value: this.storage.getItem("additional_devices"),
-        choices: ['Fan', 'Humidifier'],
-        description: 'Display additional devices for components',
-        multiple: true,
-      }
     ]
   }
 
@@ -225,6 +217,14 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
       mode: humModeFromEcobee(data.settings.humidifierMode),
       humidifierSetpoint: Number(data.settings.humidity),
     });
+
+    // Update Air Quality sensor
+    if (ScryptedInterface.AirQualitySensor in this.interfaces)
+      this.setAirQualityFromAQScore(data.runtime.actualAQScore);
+    if (ScryptedInterface.VOCSensor in this.interfaces)
+      this.vocDensity = data.runtime.actualVOC/10;
+    if (true)
+      this.console.log(`co2: ${data.runtime.actualCO2/10}`)
   }
 
   async setHumidity(humidity: HumidityCommand): Promise<void> {
@@ -425,6 +425,19 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
 
     this.console.log(`fanOn failed: ${resp}`)
   }
+
+  setAirQualityFromAQScore(aqScore: number) {
+    // ecobee seems to use a 0-500 score
+    // 0-50: Good, 51-100: Moderate, 101-150: Unhealthy sensitive groups, 151-200: Unhealthy, 201-300: Very Unhealthy, 301-500: Hazardous
+    // Combine Unhealthy and Very Unhealthy into "Poor"
+    if (aqScore < 51 ) this.airQuality = AirQuality.Excellent;
+    else if (aqScore < 101 ) this.airQuality = AirQuality.Good;
+    else if (aqScore < 151) this.airQuality = AirQuality.Fair;
+    else if (aqScore < 201 ) this.airQuality = AirQuality.Poor;
+    else if (aqScore < 301) this.airQuality = AirQuality.Poor;
+    else if (aqScore < 501) this.airQuality = AirQuality.Inferior;
+    else this.airQuality = AirQuality.Unknown;
+  }
 }
 
 class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Settings {
@@ -460,14 +473,19 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
   async getSettings(): Promise<Setting[]> {
     return [
       {
-        group: "API",
+        title: "Sensors Only",
+        key: "sensors_only",
+        type: "boolean",
+        description: "Expose only sensors, and not thermostat",
+        value: this.storage.getItem("sensors_only") === "true",
+      },
+      {
         title: "API Base URL",
         key: "api_base",
         description: "Customize the API base URL",
         value: this.storage.getItem("api_base"),
       },
       {
-        group: "API",
         title: "API Client ID",
         key: "client_id",
         description: "Your Client ID from the Ecboee developer portal",
@@ -583,6 +601,7 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
         selectionType: "registered",
         selectionMatch: "",
         includeSettings: true,
+        includeRuntime: true,
       }
     }
     const apiDevices = (await this.req('get', 'thermostat', json)).thermostatList;
@@ -593,21 +612,39 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
     for (let apiDevice of apiDevices) {
       this.console.log(` Discovered ${apiDevice.brand} ${apiDevice.modelNumber} ${apiDevice.name} (${apiDevice.identifier})`);
 
+      let deviceType: ScryptedDeviceType = ScryptedDeviceType.Thermostat;
       const interfaces: ScryptedInterface[] = [
-        ScryptedInterface.Thermometer,
-        ScryptedInterface.TemperatureSetting,
-        ScryptedInterface.Refresh,
-        ScryptedInterface.HumiditySensor,
-        ScryptedInterface.OnOff,
         ScryptedInterface.Settings,
+        ScryptedInterface.Thermometer,
+        ScryptedInterface.HumiditySensor,
+        ScryptedInterface.Refresh,
       ]
-      if (apiDevice.settings.hasHumidifier)
-        interfaces.push(ScryptedInterface.HumiditySetting);
-      
+
+      // Support exposing only sensors, not Thermostat
+      if (this.storage.getItem("sensors_only") === "true") {
+        deviceType = ScryptedDeviceType.Sensor;
+      } else {
+        interfaces.push(
+          ScryptedInterface.TemperatureSetting,
+          ScryptedInterface.OnOff,
+        )
+
+        if (apiDevice.settings.hasHumidifier)
+          interfaces.push(ScryptedInterface.HumiditySetting);
+      }
+
+      // Add AQ devices if data available
+      if (apiDevice.runtime.actualAQScore >= 0)
+        interfaces.push(ScryptedInterface.AirQualitySensor);
+      if (apiDevice.runtime.actualVOC >= 0)
+        interfaces.push(ScryptedInterface.VOCSensor)
+      if (apiDevice.runtime.actualCO2 >= 0)
+        this.console.log('CO2 sensor available');
+
       const device: Device = {
         nativeId: apiDevice.identifier,
         name: `${apiDevice.modelNumber} thermostat`,
-        type: ScryptedDeviceType.Thermostat,
+        type: deviceType,
         info: {
           model: apiDevice.brand,
           manufacturer: apiDevice.modelNumber,
