@@ -209,11 +209,11 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     });
 
     // Update Air Quality sensor
-    if (ScryptedInterface.AirQualitySensor in this.interfaces)
+    if (this.interfaces.includes(ScryptedInterface.AirQualitySensor))
       this.setAirQualityFromAQScore(data.runtime.actualAQScore);
-    if (ScryptedInterface.VOCSensor in this.interfaces)
+    if (this.interfaces.includes(ScryptedInterface.VOCSensor))
       this.vocDensity = Number(data.runtime.actualVOC)/10;
-    if (true)
+    if (this.interfaces.includes(ScryptedInterface.CO2Sensor))
       this.co2ppm = Number(data.runtime.actualCO2)/10;
   }
 
