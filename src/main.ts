@@ -101,8 +101,6 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     *            Updates equipmentStatus on each call
     */
    async refresh(refreshInterface: string, userInitiated: boolean): Promise<void> {
-    this.console.log(`${refreshInterface} requested refresh\n ${new Date()}`)
-    
     const json = {
       selection: {
         selectionType: "registered",
@@ -128,7 +126,7 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
    */
    _updateEquipmentStatus(equipmentStatus: string): void {
     equipmentStatus = equipmentStatus.toLowerCase()
-    this.console.log(` Current status: ${equipmentStatus}`);
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Equipment status:`, equipmentStatus || 'not running');
     if (equipmentStatus.includes("heat"))
       // values: heatPump, heatPump[2-3], auxHeat[1-3]
       this.thermostatActiveMode = ThermostatMode.Heat;
@@ -167,12 +165,10 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     // Compare each element, skip first 3
     for (let i = 3; i < listItems.length; i++) {
       if (this.revisionList[i] !== oldList[i]) {
-        this.console.log(` Changes detected: ${listItems[i]}`)
+        this.console.log(`[${this.name}] (${new Date().toLocaleString()}) ${listItems[i]} changes detected.`)
         return true;
       }
     }
-
-    this.console.log(" Changes detected: none");
     return false;
   }
 
@@ -190,6 +186,7 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
       }
     }
     const data = (await this.provider.req('get', 'thermostat', json)).thermostatList[0];
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Reload data`, data)
 
     // Set runtime values
     this.temperature = convertFtoC(Number(data.runtime.actualTemperature)/10)
@@ -536,7 +533,7 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
     })).data;
     this.access_token = tokenData.access_token;
     this.storage.setItem("refresh_token", tokenData.refresh_token);
-    console.log(`Stored access/refresh token`)
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Got tokens`)
   }
 
   // Refresh the tokens
@@ -554,7 +551,7 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
     })).data;
     this.access_token = tokenData.access_token;
     this.storage.setItem("refresh_token", tokenData.refresh_token);
-    console.log(`Refreshed access/refresh token`)
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Refreshed tokens`)
   }
 
   // Generic API request
@@ -587,7 +584,7 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
     try {
       return (await axios.request(config)).data;
     } catch (e) {
-      this.console.log(`req failed ${e}`)
+      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) req failed ${e}`)
       // refresh token and retry request
       await this.refreshToken();
       return await this.req(method, endpoint, json, data, attempt++);
@@ -605,12 +602,12 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
       }
     }
     const apiDevices = (await this.req('get', 'thermostat', json)).thermostatList;
-    this.console.log(`Discovered ${apiDevices.length} devices.`);
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Discovered ${apiDevices.length} devices.`);
 
     // Create a list of devices found from the API
     const devices: Device[] = [];
     for (let apiDevice of apiDevices) {
-      this.console.log(` Discovered ${apiDevice.brand} ${apiDevice.modelNumber} ${apiDevice.name} (${apiDevice.identifier})`);
+      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Discovered ${apiDevice.brand} ${apiDevice.modelNumber} ${apiDevice.name} (${apiDevice.identifier})`);
 
       let deviceType: ScryptedDeviceType = ScryptedDeviceType.Thermostat;
       const interfaces: ScryptedInterface[] = [
@@ -622,6 +619,7 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
 
       // Support exposing only sensors, not Thermostat
       if (this.storage.getItem("sensors_only") === "true") {
+        this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Devices will be exposed as sensors only.`)
         deviceType = ScryptedDeviceType.Sensor;
       } else {
         interfaces.push(
