@@ -30,7 +30,7 @@
         ]
     },
     "devDependencies": {
-        "@scrypted/sdk": "^0.0.198",
+        "@scrypted/sdk": "^0.0.206",
         "@types/node": "^16.7.1"
     },
     "dependencies": {
