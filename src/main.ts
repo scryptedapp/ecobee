@@ -29,9 +29,9 @@ function ecobeeToThermostatMode(mode: string): ThermostatMode {
       return ThermostatMode.Heat;
     case "auto":
       return ThermostatMode.Auto;
-    case "off":
-      return ThermostatMode.Off;
   }
+
+  return ThermostatMode.Off;
 }
 
 function thermostatModeToEcobee(mode: ThermostatMode): string {
@@ -43,9 +43,9 @@ function thermostatModeToEcobee(mode: ThermostatMode): string {
       return "heat";
     case ThermostatMode.Auto:
       return "auto";
-    case ThermostatMode.Off:
-      return "off";
   }
+
+  return "off"
 }
 
 function humModeFromEcobee(mode: string): HumidityMode {
@@ -67,7 +67,6 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
   constructor(nativeId: string, provider: EcobeeController) {
     super(nativeId);
     this.provider = provider;
-    this.revisionList = null;
 
     this.temperatureUnit = TemperatureUnit.F
     const modes: ThermostatMode[] = [ThermostatMode.Cool, ThermostatMode.Heat, ThermostatMode.Auto, ThermostatMode.Off];
