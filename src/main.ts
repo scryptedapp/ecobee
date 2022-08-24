@@ -95,7 +95,7 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
    async refresh(refreshInterface: string, userInitiated: boolean): Promise<void> {
     const json = {
       selection: {
-        selectionType: "registered",
+        selectionType: "thermostats",
         selectionMatch: this.nativeId,
         includeEquipmentStatus: true,
       }
@@ -170,7 +170,7 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
   async reload(): Promise<void> {
     const json = {
       selection: {
-        selectionType: "registered",
+        selectionType: "thermostats",
         selectionMatch: this.nativeId,
         includeSettings: true,
         includeRuntime: true,
@@ -627,7 +627,7 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
 
       const device: Device = {
         nativeId: apiDevice.identifier,
-        name: `${apiDevice.modelNumber} thermostat`,
+        name: `${apiDevice.name} thermostat`,
         type: deviceType,
         info: {
           model: apiDevice.brand,
