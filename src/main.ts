@@ -28,7 +28,7 @@ function ecobeeToThermostatMode(mode: string): ThermostatMode {
     case "heat":
       return ThermostatMode.Heat;
     case "auto":
-      return ThermostatMode.Auto;
+      return ThermostatMode.HeatCool;
   }
 
   return ThermostatMode.Off;
@@ -41,7 +41,7 @@ function thermostatModeToEcobee(mode: ThermostatMode): string {
       return "cool";
     case ThermostatMode.Heat:
       return "heat";
-    case ThermostatMode.Auto:
+    case ThermostatMode.HeatCool:
       return "auto";
   }
 
@@ -69,7 +69,7 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     this.provider = provider;
 
     this.temperatureUnit = TemperatureUnit.F
-    const modes: ThermostatMode[] = [ThermostatMode.Cool, ThermostatMode.Heat, ThermostatMode.Auto, ThermostatMode.Off];
+    const modes: ThermostatMode[] = [ThermostatMode.Cool, ThermostatMode.Heat, ThermostatMode.HeatCool, ThermostatMode.Off];
     this.thermostatAvailableModes = modes;
 
     let humModes: HumidityMode[] = [HumidityMode.Auto, HumidityMode.Humidify, HumidityMode.Off];
@@ -252,8 +252,8 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
   async setThermostatSetpoint(degrees: number): Promise<void> {
     this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint ${degrees}C`)
 
-    if (this.thermostatMode === ThermostatMode.Auto) {
-      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint not running in auto mode`)
+    if (this.thermostatMode === ThermostatMode.HeatCool) {
+      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint not running in heatcool mode`)
       return;
     }
 
