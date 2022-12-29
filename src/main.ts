@@ -250,7 +250,8 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
   }
 
   async setThermostatSetpoint(degrees: number): Promise<void> {
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint ${degrees}C`)
+    const ecobeeIntTemp = celsiusToEcobeeInt(degrees)
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint ${degrees}C / ${ecobeeIntTemp}F`)
 
     if (this.thermostatMode === ThermostatMode.HeatCool) {
       this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint not running in heatcool mode`)
@@ -267,8 +268,8 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
           type:"setHold",
           params:{
             holdType: "nextTransition",
-            heatHoldTemp: celsiusToEcobeeInt(degrees),
-            coolHoldTemp: celsiusToEcobeeInt(degrees),
+            heatHoldTemp: ecobeeIntTemp,
+            coolHoldTemp: ecobeeIntTemp,
           }
         }
       ]
@@ -276,6 +277,8 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
 
     const resp = await this.provider.req('post', 'thermostat', undefined, data)
     if (resp.status.code == 0) {
+      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) thermostatSetpoint=${ecobeeIntToCelsius(ecobeeIntTemp)}`)
+      this.thermostatSetpoint = ecobeeIntToCelsius(ecobeeIntTemp)
       this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint success`)
       await this.reload();
       return;
