@@ -93,6 +93,8 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     *            Updates equipmentStatus on each call
     */
    async refresh(refreshInterface: string, userInitiated: boolean): Promise<void> {
+    this.console.log(`${refreshInterface} requested refresh: ${new Date()}`);
+
     const json = {
       selection: {
         selectionType: "thermostats",
