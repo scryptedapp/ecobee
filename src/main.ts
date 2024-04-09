@@ -1,5 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios'
-import sdk, { Device, ScryptedDeviceBase, OnOff, DeviceProvider, ScryptedDeviceType, ThermostatMode, Thermometer, HumiditySensor, TemperatureSetting, Settings, Setting, ScryptedInterface, Refresh, TemperatureUnit, HumidityCommand, HumidityMode, HumiditySetting, VOCSensor, AirQualitySensor, AirQuality, CO2Sensor } from '@scrypted/sdk';
+import sdk, { Device, ScryptedDeviceBase, OnOff, DeviceProvider, ScryptedDeviceType, ThermostatMode, Thermometer, HumiditySensor, TemperatureSetting, Settings, Setting, ScryptedInterface, Refresh, TemperatureUnit, HumidityCommand, HumidityMode, HumiditySetting, VOCSensor, AirQualitySensor, AirQuality, CO2Sensor, TemperatureSettingStatus, HumiditySettingStatus, TemperatureCommand } from '@scrypted/sdk';
 const { deviceManager } = sdk;
 
 const API_RETRY = 2;
@@ -70,13 +70,15 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
 
     this.temperatureUnit = TemperatureUnit.F
     const modes: ThermostatMode[] = [ThermostatMode.Cool, ThermostatMode.Heat, ThermostatMode.HeatCool, ThermostatMode.Off];
-    this.thermostatAvailableModes = modes;
+    this.temperatureSetting = {
+      availableModes: modes,
+    } as TemperatureSettingStatus;
 
     let humModes: HumidityMode[] = [HumidityMode.Auto, HumidityMode.Humidify, HumidityMode.Off];
     this.humiditySetting = {
       mode: HumidityMode.Off,
       availableModes: humModes,
-    }
+    } as HumiditySettingStatus;
 
     setImmediate(() => this.refresh("constructor", false));
   }
@@ -121,14 +123,15 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
    _updateEquipmentStatus(equipmentStatus: string): void {
     equipmentStatus = equipmentStatus.toLowerCase()
     this.console.log(`[${this.name}] (${new Date().toLocaleString()}) Equipment status:`, equipmentStatus || 'not running');
+    let nextTemperatureSetting = this.temperatureSetting as TemperatureSettingStatus;
     if (equipmentStatus.includes("heat"))
       // values: heatPump, heatPump[2-3], auxHeat[1-3]
-      this.thermostatActiveMode = ThermostatMode.Heat;
+      nextTemperatureSetting.activeMode = ThermostatMode.Heat;
     else if (equipmentStatus.includes("cool"))
       // values: compCool[1-2]
-      this.thermostatActiveMode = ThermostatMode.Cool;
+      nextTemperatureSetting.activeMode =  ThermostatMode.Cool;
     else
-      this.thermostatActiveMode = ThermostatMode.Off;
+      nextTemperatureSetting.activeMode = ThermostatMode.Off;
 
     // fan status
     if (equipmentStatus.includes('fan')) {
@@ -138,11 +141,15 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     }
 
     // humidifier status
-    let activeMode = HumidityMode.Off
+    let nextHumiditySetting = this.humiditySetting as HumiditySettingStatus;
     if (equipmentStatus.includes('humidifier')) {
-      activeMode = HumidityMode.Humidify
+      nextHumiditySetting.activeMode = HumidityMode.Humidify;
+    } else {
+      nextHumiditySetting.activeMode = HumidityMode.Off;
     }
-    this.humiditySetting = Object.assign(this.humiditySetting, { activeMode });
+
+    this.humiditySetting = nextHumiditySetting;
+    this.temperatureSetting = nextTemperatureSetting;
   }
 
   /* revisionListChanged(): Compare a new revision list to the stored list, return true if changed
@@ -190,24 +197,27 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     this._updateEquipmentStatus(data.equipmentStatus);
 
     // update based on mode
-    this.thermostatMode = ecobeeToThermostatMode(data.settings.hvacMode);
+    let nextTemperatureSetting = this.temperatureSetting as TemperatureSettingStatus;
+    nextTemperatureSetting.mode = ecobeeToThermostatMode(data.settings.hvacMode);
 
-    this.thermostatSetpointHigh = ecobeeIntToCelsius(data.runtime.desiredCool);
-    this.thermostatSetpointLow = ecobeeIntToCelsius(data.runtime.desiredHeat);
     switch(data.settings.hvacMode) {
       case 'cool':
-        this.thermostatSetpoint = ecobeeIntToCelsius(data.runtime.desiredCool);
+        nextTemperatureSetting.setpoint = ecobeeIntToCelsius(data.runtime.desiredCool);
         break;
       case 'heat':
-        this.thermostatSetpoint = ecobeeIntToCelsius(data.runtime.desiredHeat);
+        nextTemperatureSetting.setpoint = ecobeeIntToCelsius(data.runtime.desiredHeat);
         break;
+      default:
+        nextTemperatureSetting.setpoint = [
+          ecobeeIntToCelsius(data.runtime.desiredHeat),
+          ecobeeIntToCelsius(data.runtime.desiredCool),
+        ]
     }
 
     // update humidifier based on mode
-    this.humiditySetting = Object.assign(this.humiditySetting, {
-      mode: humModeFromEcobee(data.settings.humidifierMode),
-      humidifierSetpoint: Number(data.settings.humidity),
-    });
+    let nextHumiditySetting = this.humiditySetting as HumiditySettingStatus;
+    nextHumiditySetting.mode = humModeFromEcobee(data.settings.humidifierMode);
+    nextHumiditySetting.humidifierSetpoint = Number(data.settings.humidity);
 
     // Update Air Quality sensor
     if (this.interfaces.includes(ScryptedInterface.AirQualitySensor))
@@ -216,6 +226,10 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
       this.vocDensity = Number(data.runtime.actualVOC)/10;
     if (this.interfaces.includes(ScryptedInterface.CO2Sensor))
       this.co2ppm = Number(data.runtime.actualCO2)/10;
+
+
+    this.temperatureSetting = nextTemperatureSetting;
+    this.humiditySetting = nextHumiditySetting;
   }
 
   async setHumidity(humidity: HumidityCommand): Promise<void> {
@@ -226,127 +240,63 @@ class EcobeeThermostat extends ScryptedDeviceBase implements HumiditySensor, The
     this.temperatureUnit = temperatureUnit;
   }
   
-  async setThermostatMode(mode: ThermostatMode): Promise<void> {
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatMode ${mode}`)
-    
+  async setTemperature(command: TemperatureCommand): Promise<void> {
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setTemperature ${command}`)
+    this.console.log(command);
+    // create api payload
     const data = {
       selection: {
         selectionType:"registered",
         selectionMatch: this.nativeId,
       },
-      thermostat: {
+    }
+
+    // setting setpoint
+    if (Array.isArray(command.setpoint)) {
+      data['functions'] = [
+        {
+          type:"setHold",
+          params:{
+            holdType: "nextTransition",
+            heatHoldTemp: celsiusToEcobeeInt(command.setpoint[0]),
+            coolHoldTemp: celsiusToEcobeeInt(command.setpoint[1]),
+          }
+        }
+      ]
+    } else if (command.setpoint !== undefined) {
+      data['functions'] = [
+        {
+          type:"setHold",
+          params:{
+            holdType: "nextTransition",
+            heatHoldTemp: celsiusToEcobeeInt(command.setpoint),
+            coolHoldTemp: celsiusToEcobeeInt(command.setpoint),
+          }
+        }
+      ]
+    }
+
+    // setting mode
+    if (command.mode) {
+      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setTemperature.mode ${command.mode}`)
+
+      data['thermostat'] = {
         settings:{
-          hvacMode: thermostatModeToEcobee(mode)
+          hvacMode: thermostatModeToEcobee(command.mode)
         }
       }
     }
 
+    // api transaction
     const resp = await this.provider.req('post', 'thermostat', undefined, data);
     if (resp.status.code == 0) {
-      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatMode success`)
+      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setTemperature success`)
       await this.reload();
       return;
     }
 
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatMode failed: ${resp}`)
-  }
+    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setTemperature failed: ${resp}`)
 
-  async setThermostatSetpoint(degrees: number): Promise<void> {
-    const ecobeeIntTemp = celsiusToEcobeeInt(degrees)
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint ${degrees}C / ${ecobeeIntTemp}F`)
-
-    if (this.thermostatMode === ThermostatMode.HeatCool) {
-      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint not running in heatcool mode`)
-      return;
-    }
-
-    const data = {
-      selection: {
-        selectionType:"registered",
-        selectionMatch: this.nativeId,
-      },
-      functions: [
-        {
-          type:"setHold",
-          params:{
-            holdType: "nextTransition",
-            heatHoldTemp: ecobeeIntTemp,
-            coolHoldTemp: ecobeeIntTemp,
-          }
-        }
-      ]
-    }
-
-    const resp = await this.provider.req('post', 'thermostat', undefined, data)
-    if (resp.status.code == 0) {
-      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) thermostatSetpoint=${ecobeeIntToCelsius(ecobeeIntTemp)}`)
-      this.thermostatSetpoint = ecobeeIntToCelsius(ecobeeIntTemp)
-      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint success`)
-      await this.reload();
-      return;
-    }
-
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpoint failed: ${resp}`)
-  }
-
-  async setThermostatSetpointHigh(high: number): Promise<void> {
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpointHigh ${high}C`)
-
-    const data = {
-      selection: {
-        selectionType:"registered",
-        selectionMatch: this.nativeId,
-      },
-      functions: [
-        {
-          type:"setHold",
-          params:{
-            holdType: "nextTransition",
-            heatHoldTemp: celsiusToEcobeeInt(this.thermostatSetpointLow),
-            coolHoldTemp: celsiusToEcobeeInt(high),
-          }
-        }
-      ]
-    }
-
-    const resp = await this.provider.req('post', 'thermostat', undefined, data)
-    if (resp.status.code == 0) {
-      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpointHigh success`)
-      await this.reload();
-      return;
-    }
-
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpointHigh failed: ${resp}`)
-  }
-  
-  async setThermostatSetpointLow(low: number): Promise<void> {
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpointLow ${low}C`)
-
-    const data = {
-      selection: {
-        selectionType:"registered",
-        selectionMatch: this.nativeId,
-      },
-      functions: [
-        {
-          type:"setHold",
-          params:{
-            holdType: "nextTransition",
-            heatHoldTemp: celsiusToEcobeeInt(low),
-            coolHoldTemp: celsiusToEcobeeInt(this.thermostatSetpointHigh),
-          }
-        }
-      ]
-    }
-
-    const resp = await this.provider.req('post', 'thermostat', undefined, data)
-    if (resp.status.code == 0) {
-      this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpointLow success`)
-      await this.reload();
-      return;
-    }
-
-    this.console.log(`[${this.name}] (${new Date().toLocaleString()}) setThermostatSetpointLow failed: ${resp}`)
   }
 
   async turnOff(): Promise<void> {
@@ -457,6 +407,10 @@ class EcobeeController extends ScryptedDeviceBase implements DeviceProvider, Set
       await this.refreshToken();
 
     this.discoverDevices();
+  }
+
+  async releaseDevice(id: string, nativeId: string): Promise<void> {
+    
   }
 
   async getSettings(): Promise<Setting[]> {
